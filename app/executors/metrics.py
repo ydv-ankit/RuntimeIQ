@@ -1,5 +1,7 @@
 from app.task import Task
+import asyncio
 
 class MetricExecutor:
-    def execute(self, task: Task):
-        return "latency", "424ms"
+    async def execute(self, task: Task, ctx: dict):
+        await asyncio.sleep(2)
+        return "metrics", "424ms"

@@ -1,5 +1,7 @@
 from app.task import Task
+import asyncio
 
 class SummaryExecutor:
-    def execute(self, task: Task):
+    async def execute(self, task: Task, ctx: dict):
+        await asyncio.sleep(2)
         return "summary", "issue spotted"

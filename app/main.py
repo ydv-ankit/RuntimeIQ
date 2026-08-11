@@ -13,7 +13,7 @@ async def health():
 @app.post("/api/v1/investigate")
 async def investigate(body: InvestigateRequestBody):
     runtime = Runtime()
-    results = runtime.run(body.goal)
+    results = await runtime.run(body.goal)
     return {
         "status": "started",
         "result": results
