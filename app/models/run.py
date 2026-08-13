@@ -4,7 +4,7 @@ from enum import Enum
 
 class RunStatus(Enum):
     PENDING = 1
-    STARTED = 2
+    RUNNING = 2
     COMPLETED = 3
     FAILED = 4
 

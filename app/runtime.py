@@ -6,6 +6,7 @@ from app.executors.repository import RepositoryExecutor
 from app.executors.summary import SummaryExecutor
 from app.models.run import Run, RunStatus
 from app.task import Task
+from app.repository.run_repository import RunRepository
 import asyncio
 
 class Runtime:
@@ -22,7 +23,8 @@ class Runtime:
             "COMPLETED": {},
             "FAILED": []
         }
-        run.status = RunStatus.STARTED
+        run.status = RunStatus.RUNNING
+        RunRepository.update_status(run.id, run.status)
         planner = Planner()
         plan = planner.plan(run.goal.lower())
         completed_tasks = set()
@@ -68,6 +70,7 @@ class Runtime:
             run.status = RunStatus.FAILED
         else:
             run.status = RunStatus.COMPLETED
+        RunRepository.update_status(run.id, run.status)
         return results, workflow_failed
 
     def dependencies_resolved(self, task, completed_tasks, execution_context):

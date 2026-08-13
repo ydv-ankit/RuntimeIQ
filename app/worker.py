@@ -2,11 +2,15 @@ from app.runtime import Runtime
 from app.repository.run_repository import RunRepository
 from app.config.redis import get_redis_connection
 from app.constants import RedisEnums
-from app.models.run import Run
+from app.models.run import Run, RunStatus
 import asyncio
 
 async def executeRuntime(run_id: str):
     run = RunRepository.get(run_id)
+    if run.status == RunStatus.COMPLETED:
+        run.__repr__()
+        print("Run already completed, skipping...")
+        return
     runtime = Runtime()
     results, workflow_failed = await runtime.execute(run)
     run.__repr__()
