@@ -1,6 +1,13 @@
 from fastapi import FastAPI
 from app.models.api_models import InvestigateRequestBody
 from app.runtime import Runtime
+from app.models.run import Run, RunStatus
+from app.seed.db_seed import seed_db_schema
+from app.config.redis import get_redis_connection
+from app.constants import RedisEnums
+from app.repository.run_repository import RunRepository 
+
+seed_db_schema()
 
 app = FastAPI()
 
@@ -12,9 +19,15 @@ async def health():
 
 @app.post("/api/v1/investigate")
 async def investigate(body: InvestigateRequestBody):
-    runtime = Runtime()
-    results = await runtime.run(body.goal)
-    return {
-        "status": "started",
-        "result": results
-    }
+    goal = body.goal
+    if goal is None or not isinstance(goal, str):
+        return {
+            "status": "failed",
+            "result": {},
+            "message": "invalid goal"
+        }
+    run = Run(goal)
+    RunRepository.create(run)
+    with get_redis_connection() as redis:
+        redis.lpush(RedisEnums.RUN_QUEUE.value, str(run.id))
+    return

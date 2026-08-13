@@ -4,6 +4,7 @@ from app.executors.database import DatabaseExecutor
 from app.executors.logs import LogExecutor
 from app.executors.repository import RepositoryExecutor
 from app.executors.summary import SummaryExecutor
+from app.models.run import Run, RunStatus
 from app.task import Task
 import asyncio
 
@@ -16,41 +17,58 @@ class Runtime:
         "summary": SummaryExecutor()
     }
 
-    async def run(self, goal: str):
-        results = {}
+    async def execute(self, run: Run):
+        results = {
+            "COMPLETED": {},
+            "FAILED": []
+        }
+        run.status = RunStatus.STARTED
         planner = Planner()
-        plan = planner.plan(goal.lower())
+        plan = planner.plan(run.goal.lower())
         completed_tasks = set()
-        remainingTasks: list[Task] = self.get_remaining_tasks(plan, completed_tasks)
-        print(remainingTasks)
+        remaining_tasks: list[Task] = self.get_remaining_tasks(plan, completed_tasks)
+        print(remaining_tasks)
 
         execution_context = {}
 
         # scheduler
-        while remainingTasks:
-            tasksToExecute = list()
-            for task in remainingTasks:
+        workflow_failed = False
+        while remaining_tasks and not workflow_failed:
+            tasks_to_execute = list()
+            for task in remaining_tasks:
                 print("task depends_on", task.name, task.depends_on)
                 deps_resolved, deps_context = self.dependencies_resolved(task, completed_tasks, execution_context)
                 print("dependencies_resolved:", deps_resolved)
                 print("dependencies_context", deps_context)
                 if deps_resolved:
-                    tasksToExecute.append([task, deps_context])
-            if not tasksToExecute:
+                    tasks_to_execute.append([task, deps_context])
+            if not tasks_to_execute:
                 raise RuntimeError("No executable tasks remain; possible cyclic dependency")
             
             executions = await asyncio.gather(
-                    *(self.execute_task(task, deps_context) for task, deps_context in tasksToExecute)
+                    *(self.execute_task(task, deps_context) for task, deps_context in tasks_to_execute),
+                    return_exceptions=True
                 )
             print("executions", executions)
-            for task, key, value in executions:
+            for task, execution in executions:
+                print(task, execution)
+                if isinstance(execution, Exception):
+                    workflow_failed = True
+                    print("Task failed:", execution)
+                    results["FAILED"].append({task.name: str(execution)})
+                    continue
                 completed_tasks.add(task)
-                execution_context[task.name] = {key, value}
-                results[task.name] = {key, value}
+                execution_context[task.name] = execution
+                results["COMPLETED"][task.name] = execution
 
-            remainingTasks = self.get_remaining_tasks(remainingTasks, completed_tasks)
 
-        return results
+            remaining_tasks = self.get_remaining_tasks(remaining_tasks, completed_tasks)
+
+        if workflow_failed:
+            run.status = RunStatus.FAILED
+        else:
+            run.status = RunStatus.COMPLETED
+        return results, workflow_failed
 
     def dependencies_resolved(self, task, completed_tasks, execution_context):
         dependencies_resolved = True
@@ -71,9 +89,9 @@ class Runtime:
         return remainingTasks
 
     async def execute_task(self, task: Task, deps_context: dict):
-        executor = self.executorsRegistry[task.name]
-        key, value = await executor.execute(task.name, deps_context)
-        # results[key] = value
-        # completed_tasks.add(task)
-        # execution_context[task.name] = {key: value}
-        return task, key, value
+        try:
+            executor = self.executorsRegistry[task.name]
+            key, value = await executor.execute(task.name, deps_context)
+            return task, {key: value}
+        except Exception as e:
+            return task, e
