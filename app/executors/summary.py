@@ -3,5 +3,5 @@ import asyncio
 
 class SummaryExecutor:
     async def execute(self, task: Task, ctx: dict):
-        await asyncio.sleep(2)
+        await asyncio.sleep(41)
         return "summary", "issue spotted"

@@ -1,7 +1,7 @@
 import psycopg2
 
 connection = None
-def get_connection():
+def get_db_connection():
     try:
         global connection
         if connection is None:
@@ -16,7 +16,7 @@ def get_connection():
     except Exception as e:
         print("connection error", e)
         connection = None
-        return connection
+        raise
 
 def close_connection():
     print("Closing db connection")

@@ -1,7 +1,7 @@
-from app.config.db import get_connection
+from app.config.db import get_db_connection
 
 def seed_db_schema():
-    connection = get_connection()
+    connection = get_db_connection()
     print("connection", connection)
     with connection.cursor() as cursor:
         cursor.execute("""

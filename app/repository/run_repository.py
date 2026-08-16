@@ -1,5 +1,6 @@
 from app.models.run import Run, RunStatus
-from app.config.db import get_connection
+from app.config.db import get_db_connection
+from datetime import datetime
 
 class RunRepository:
 
@@ -12,7 +13,7 @@ class RunRepository:
 
         params = (str(run.id), run.goal, run.status.name, run.created_at)
 
-        connection = get_connection()
+        connection = get_db_connection()
         cursor = connection.cursor()
         cursor.execute(query, params)
         cursor.close()
@@ -26,7 +27,7 @@ class RunRepository:
                 """
         params = (str(run_id),)
 
-        connection = get_connection()
+        connection = get_db_connection()
         cursor = connection.cursor()
         cursor.execute(query, params)
         row = cursor.fetchone()
@@ -46,7 +47,7 @@ class RunRepository:
                 where id = %s
                 """
         params = (updated_status.name, str(run_id))
-        connection = get_connection()
+        connection = get_db_connection()
         cursor = connection.cursor()
         cursor.execute(query, params)
         cursor.close()
