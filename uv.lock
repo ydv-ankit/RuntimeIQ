@@ -917,6 +917,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "psycopg2" },
+    { name = "pydantic-settings" },
     { name = "redis" },
     { name = "requests" },
 ]
@@ -925,6 +926,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
     { name = "psycopg2", specifier = ">=2.9.12" },
+    { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "requests", specifier = ">=2.34.2" },
 ]

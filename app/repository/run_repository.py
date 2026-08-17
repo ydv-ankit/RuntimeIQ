@@ -31,6 +31,8 @@ class RunRepository:
         cursor = connection.cursor()
         cursor.execute(query, params)
         row = cursor.fetchone()
+        if row is None:
+            raise Exception("run not found")
         cursor.close()
         return Run(
             id=row[0],

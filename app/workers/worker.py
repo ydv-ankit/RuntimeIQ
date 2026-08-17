@@ -22,6 +22,7 @@ async def renew_lease(run_id: str):
 
 async def executeRuntime(run_id: str):
     redis_conn = get_redis_connection()
+    lease_task = None
     try:
         run = RunRepository.get(run_id)
         if run.status == RunStatus.COMPLETED:
@@ -49,7 +50,8 @@ async def executeRuntime(run_id: str):
         raise
     finally:
         print("finally completed...")
-        lease_task.cancel()
+        if lease_task:
+            lease_task.cancel()
         redis_conn.close()
 
 def consume_runs():

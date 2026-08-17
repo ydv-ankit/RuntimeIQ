@@ -1,4 +1,5 @@
 import psycopg2
+from app.config.env import settings
 
 connection = None
 def get_db_connection():
@@ -6,11 +7,11 @@ def get_db_connection():
         global connection
         if connection is None:
             connection = psycopg2.connect(
-                database="runtimeiq",
-                user="postgres",
-                password="postgres",
-                host="127.0.0.1",
-                port=5432,
+                database=settings.DB_DATABASE_NAME,
+                user=settings.DB_USERNAME,
+                password=settings.DB_PASSWORD,
+                host=settings.DB_HOST,
+                port=settings.DB_PORT,
             )
         return connection
     except Exception as e:
