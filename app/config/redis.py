@@ -1,4 +1,4 @@
-from redis import Redis
+from redis.asyncio import Redis
 from app.config.env import settings
 
 def get_redis_connection():

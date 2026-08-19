@@ -2,77 +2,145 @@ from app.runtime import Runtime
 from app.repository.run_repository import RunRepository
 from app.config.redis import get_redis_connection
 from app.constants import RedisEnums, LEASE_TIME
-from app.models.run import Run, RunStatus
+from app.models.run import RunStatus
 from app.workers.recovery_worker import startRecoveryWorker
 import uuid
 import asyncio
 import time
 
 WORKER_ID = str(uuid.uuid4())
+MAX_CONCURRENT_RUNS = 2
 
-async def renew_lease(run_id: str):
-    while True:
-        print(f"sleeping for {LEASE_TIME - 10} time")
-        await asyncio.sleep(LEASE_TIME - 10)
-        print("awake...")
-        redis_conn = get_redis_connection()
-        redis_conn.zadd(RedisEnums.RUN_LEASE_KEY.value, {run_id: time.time() + LEASE_TIME})
-        print("updated lease time")
-        redis_conn.close()
+run_semaphore = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
 
-async def executeRuntime(run_id: str):
-    redis_conn = get_redis_connection()
-    lease_task = None
+async def execute_and_release(run_id):
     try:
-        run = RunRepository.get(run_id)
-        if run.status == RunStatus.COMPLETED:
-            run.__repr__()
-            print("Run already completed, skipping...")
+        await execute_runtime(run_id)
+    finally:
+        run_semaphore.release()
+
+async def renew_lease(run_id: str, lease_lost: asyncio.Event):
+    while True:
+        await asyncio.sleep(LEASE_TIME - 10)
+
+        redis_conn = get_redis_connection()
+        owner = await redis_conn.hget(
+            RedisEnums.RUN_LEASE_OWNERS_KEY.value,
+            run_id
+        )
+
+        print(
+            "LEASE DEBUG:",
+            "run_id =", run_id,
+            "expected =", WORKER_ID,
+            "actual =", owner.decode() if owner else None
+        )
+        result = await renew_lease_script(
+            keys=[
+                RedisEnums.RUN_LEASE_OWNERS_KEY.value,
+                RedisEnums.RUN_LEASE_KEY.value,
+            ],
+            args=[
+                run_id,
+                WORKER_ID,
+                time.time() + LEASE_TIME,
+            ],
+        )
+
+        await redis_conn.close()
+
+        if result == 0:
+            print("Lost lease ownership:", run_id)
+            lease_lost.set()
             return
 
-        print("setting initial lease")
-        redis_conn.zadd(RedisEnums.RUN_LEASE_KEY.value, {run_id: time.time() + LEASE_TIME})
-        redis_conn.hset(RedisEnums.RUN_LEASE_OWNERS_KEY.value, run_id, WORKER_ID)
+        print("Lease renewed:", run_id)
+
+async def execute_runtime(run_id):
+    redis_conn = get_redis_connection()
+    lease_lost = asyncio.Event()
+
+    try:
+        run = RunRepository.get(run_id)
+
+        # create initial lease...
+        print("setting initial lease in redis")
+        await redis_conn.zadd(RedisEnums.RUN_LEASE_KEY.value, {run_id: time.time() + LEASE_TIME})
+        await redis_conn.hset(RedisEnums.RUN_LEASE_OWNERS_KEY.value, run_id, WORKER_ID)
 
         lease_task = asyncio.create_task(
-            renew_lease(run_id)
+            renew_lease(run_id, lease_lost)
         )
 
         runtime = Runtime()
-        results, workflow_failed = await runtime.execute(run)
-        run.__repr__()
-        lease_task.cancel()
-        redis_conn.zrem(RedisEnums.RUN_LEASE_KEY.value, run_id)
-        redis_conn.hdel(RedisEnums.RUN_LEASE_OWNERS_KEY.value, run_id)
-    except Exception as e:
-        print("error occured in runtime")
-        print(e)
-        raise
-    finally:
-        print("finally completed...")
-        if lease_task:
-            lease_task.cancel()
-        redis_conn.close()
 
-def consume_runs():
+        runtime_task = asyncio.create_task(
+            runtime.execute(run)
+        )
+
+        lease_lost_task = asyncio.create_task(
+            lease_lost.wait()
+        )
+
+        done, pending = await asyncio.wait(
+            [runtime_task, lease_lost_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+
+        if lease_lost_task in done:
+            print("Lease lost → cancelling runtime")
+
+            runtime_task.cancel()
+
+            try:
+                await runtime_task
+            except asyncio.CancelledError:
+                pass
+
+            return
+
+        results, workflow_failed = await runtime_task
+
+    finally:
+        lease_task.cancel()
+        # cleanup lease...
+
+async def consume_runs():
     print("==========> STARTED CONSUME RUNS <==========")
     redis_conn = get_redis_connection()
     try:
         while True:
-            run_id = redis_conn.brpop(RedisEnums.RUN_QUEUE_KEY.value, 0)    # 0 timeout -> continously wait for queue item
+            await run_semaphore.acquire()
+            run_id = await redis_conn.brpop(RedisEnums.RUN_QUEUE_KEY.value, 0)    # 0 timeout -> continously wait for queue item
             print("popped run_id", run_id)
-            asyncio.run(executeRuntime(run_id[1].decode()))
+            asyncio.create_task(
+                execute_and_release(run_id[1].decode())
+            )
     finally:
-        redis_conn.close()
+        await redis_conn.close()
 
 async def startWorker():
+    global renew_lease_script
+
+    redis_conn = get_redis_connection()
+
+    with open("app/scripts/lease.lua", "r") as f:
+        script = f.read()
+
+    renew_lease_script = redis_conn.register_script(script)
+
     recovery_task = asyncio.create_task(startRecoveryWorker())
-    consumer_task = asyncio.to_thread(consume_runs)
+    consumer_task = asyncio.create_task(consume_runs())
 
     try:
-        await asyncio.gather(recovery_task, consumer_task)
+        await asyncio.gather(
+            recovery_task,
+            consumer_task
+        )
     finally:
         recovery_task.cancel()
+        consumer_task.cancel()
+        await redis_conn.close()
 
 if __name__ == "__main__":
     asyncio.run(startWorker())

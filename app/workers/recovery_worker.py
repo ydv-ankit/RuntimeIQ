@@ -11,7 +11,7 @@ async def startRecoveryWorker():
         while True:
             await asyncio.sleep(5)
             now = time.time()
-            expired_runs = redis_conn.zrangebyscore(RedisEnums.RUN_LEASE_KEY.value, "-inf", now)
+            expired_runs = await redis_conn.zrangebyscore(RedisEnums.RUN_LEASE_KEY.value, "-inf", now)
             print("expired runs", expired_runs)
             for run_id in expired_runs:
                 decoded_run_id = run_id.decode()
@@ -22,11 +22,11 @@ async def startRecoveryWorker():
                     print("run already completed, deleting...")
                 else:
                     print("run not completed, requeuing...")
-                    redis_conn.lpush(RedisEnums.RUN_QUEUE_KEY.value, str(decoded_run_id))
-                redis_conn.zrem(RedisEnums.RUN_LEASE_KEY.value, decoded_run_id)
-                redis_conn.hdel(RedisEnums.RUN_LEASE_OWNERS_KEY.value, decoded_run_id)
+                    await redis_conn.lpush(RedisEnums.RUN_QUEUE_KEY.value, str(decoded_run_id))
+                await redis_conn.zrem(RedisEnums.RUN_LEASE_KEY.value, decoded_run_id)
+                await redis_conn.hdel(RedisEnums.RUN_LEASE_OWNERS_KEY.value, decoded_run_id)
     finally:
-        redis_conn.close()
+        await redis_conn.close()
 
 if __name__ == "__main__":
     """

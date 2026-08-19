@@ -28,6 +28,6 @@ async def investigate(body: InvestigateRequestBody):
         }
     run = Run(goal)
     RunRepository.create(run)
-    with get_redis_connection() as redis:
-        redis.lpush(RedisEnums.RUN_QUEUE_KEY.value, str(run.id))
+    async with get_redis_connection() as redis_conn:
+        await redis_conn.lpush(RedisEnums.RUN_QUEUE_KEY.value, str(run.id))
     return
