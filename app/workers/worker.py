@@ -3,6 +3,8 @@ from app.repository.run_repository import RunRepository
 from app.config.redis import get_redis_connection
 from app.constants import RedisEnums, LEASE_TIME
 from app.workers.recovery_worker import startRecoveryWorker
+from app.config.logging import logger
+from prometheus_client import start_http_server
 import uuid
 import asyncio
 import time
@@ -28,11 +30,8 @@ async def renew_lease(run_id: str, lease_lost: asyncio.Event):
             run_id
         )
 
-        print(
-            "LEASE DEBUG:",
-            "run_id =", run_id,
-            "expected =", WORKER_ID,
-            "actual =", owner.decode() if owner else None
+        logger.info(
+            "LEASE DEBUG: run_id=%s expected=%s actual=%s", run_id, WORKER_ID, owner.decode() if owner else None
         )
         result = await renew_lease_script(
             keys=[
@@ -49,11 +48,11 @@ async def renew_lease(run_id: str, lease_lost: asyncio.Event):
         await redis_conn.close()
 
         if result == 0:
-            print("Lost lease ownership:", run_id)
+            logger.info("Lost lease ownership: runid=%s", run_id)
             lease_lost.set()
             return
 
-        print("Lease renewed:", run_id)
+        logger.info("Lease renewed: runid=%s", run_id)
 
 async def execute_runtime(run_id):
     redis_conn = get_redis_connection()
@@ -63,7 +62,7 @@ async def execute_runtime(run_id):
         run = RunRepository.get(run_id)
 
         # create initial lease...
-        print("setting initial lease in redis")
+        logger.info("setting initial lease in redis")
         await redis_conn.zadd(RedisEnums.RUN_LEASE_KEY.value, {run_id: time.time() + LEASE_TIME})
         await redis_conn.hset(RedisEnums.RUN_LEASE_OWNERS_KEY.value, run_id, WORKER_ID)
 
@@ -74,7 +73,7 @@ async def execute_runtime(run_id):
         runtime = Runtime()
 
         runtime_task = asyncio.create_task(
-            runtime.execute(run)
+            runtime.execute(run, WORKER_ID)
         )
 
         lease_lost_task = asyncio.create_task(
@@ -87,7 +86,7 @@ async def execute_runtime(run_id):
         )
 
         if lease_lost_task in done:
-            print("Lease lost → cancelling runtime")
+            logger.info("Lease lost → cancelling runtime")
 
             runtime_task.cancel()
 
@@ -115,7 +114,7 @@ async def execute_runtime(run_id):
         await redis_conn.close()
 
 async def consume_runs():
-    print("==========> STARTED CONSUME RUNS <==========")
+    logger.info("==========> STARTED CONSUME RUNS <==========")
     redis_conn = get_redis_connection()
     try:
         while True:
@@ -126,7 +125,7 @@ async def consume_runs():
                 continue
 
             run_id = result[1].decode()
-            print("popped run_id", run_id)
+            logger.info("popped run_id=%s", run_id)
             asyncio.create_task(
                 execute_and_release(run_id)
             )
@@ -155,4 +154,5 @@ async def startWorker():
         await redis_conn.close()
 
 if __name__ == "__main__":
+    start_http_server(9000)
     asyncio.run(startWorker())
