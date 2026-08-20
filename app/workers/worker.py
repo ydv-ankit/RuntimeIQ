@@ -2,7 +2,6 @@ from app.runtime import Runtime
 from app.repository.run_repository import RunRepository
 from app.config.redis import get_redis_connection
 from app.constants import RedisEnums, LEASE_TIME
-from app.models.run import RunStatus
 from app.workers.recovery_worker import startRecoveryWorker
 import uuid
 import asyncio
@@ -103,7 +102,17 @@ async def execute_runtime(run_id):
 
     finally:
         lease_task.cancel()
-        # cleanup lease...
+        await redis_conn.zrem(
+        RedisEnums.RUN_LEASE_KEY.value,
+            run_id
+        )
+
+        await redis_conn.hdel(
+            RedisEnums.RUN_LEASE_OWNERS_KEY.value,
+            run_id
+        )
+
+        await redis_conn.close()
 
 async def consume_runs():
     print("==========> STARTED CONSUME RUNS <==========")
@@ -111,19 +120,22 @@ async def consume_runs():
     try:
         while True:
             await run_semaphore.acquire()
-            run_id = await redis_conn.brpop(RedisEnums.RUN_QUEUE_KEY.value, 0)    # 0 timeout -> continously wait for queue item
+            result = await redis_conn.brpop(RedisEnums.RUN_QUEUE_KEY.value, 1)
+            if result is None:
+                run_semaphore.release()
+                continue
+
+            run_id = result[1].decode()
             print("popped run_id", run_id)
             asyncio.create_task(
-                execute_and_release(run_id[1].decode())
+                execute_and_release(run_id)
             )
     finally:
         await redis_conn.close()
 
 async def startWorker():
-    global renew_lease_script
-
     redis_conn = get_redis_connection()
-
+    global renew_lease_script
     with open("app/scripts/lease.lua", "r") as f:
         script = f.read()
 
