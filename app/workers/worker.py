@@ -120,7 +120,7 @@ async def consume_runs():
     try:
         while True:
             await run_semaphore.acquire()
-            result = await redis_conn.brpop(RedisEnums.RUN_QUEUE_KEY.value, 1)
+            result = await redis_conn.brpop(RedisEnums.RUN_QUEUE_KEY.value, 0)
             if result is None:
                 run_semaphore.release()
                 continue
