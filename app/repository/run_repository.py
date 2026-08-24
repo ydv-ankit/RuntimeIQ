@@ -7,11 +7,11 @@ class RunRepository:
     @staticmethod
     def create(run: Run):
         query = """
-                INSERT INTO runs (id, goal, status, created_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO runs (id, goal, status, workflow_id, created_at)
+                VALUES (%s, %s, %s, %s, %s)
                 """
 
-        params = (str(run.id), run.goal, run.status.name, run.created_at)
+        params = (str(run.id), run.goal, run.status.name, run.workflow_id, run.created_at)
 
         connection = get_db_connection()
         cursor = connection.cursor()
@@ -38,7 +38,8 @@ class RunRepository:
             id=row[0],
             goal=row[1],
             status=row[2],
-            created_at=row[3]
+            workflow_id=row[3],
+            created_at=row[4]
         )
 
     @staticmethod
@@ -49,6 +50,20 @@ class RunRepository:
                 where id = %s
                 """
         params = (updated_status.name, str(run_id))
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        cursor.close()
+        connection.commit()
+
+    @staticmethod
+    def update_workflow_id(run_id: str, updated_workflow_id: str):
+        query = """
+                UPDATE runs
+                SET workflow_id = %s
+                where id = %s
+                """
+        params = (updated_workflow_id, str(run_id))
         connection = get_db_connection()
         cursor = connection.cursor()
         cursor.execute(query, params)

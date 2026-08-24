@@ -1,27 +1,20 @@
 from app.planner import Planner
-from app.executors.metrics import MetricExecutor
-from app.executors.database import DatabaseExecutor
-from app.executors.logs import LogExecutor
-from app.executors.repository import RepositoryExecutor
-from app.executors.summary import SummaryExecutor
 from app.models.run import Run, RunStatus
 from app.task import Task
 from app.repository.run_repository import RunRepository
+from app.repository.workflow_repository import WorkflowRepository
 from app.config.logging import logger
 from app.config.prometheus import runs_started, active_runs, runs_completed, runs_failed, run_duration
+from app.workflows.parser import WorkflowParser, Workflow
+from app.workflows.validator import WorkflowValidator
 import asyncio
 import time
 
 class Runtime:
-    executorsRegistry = {
-        "metrics": MetricExecutor(),
-        "database": DatabaseExecutor(),
-        "logs": LogExecutor(),
-        "repository": RepositoryExecutor(),
-        "summary": SummaryExecutor()
-    }
+    def __init__(self, executor_registry):
+        self.executor_registry = executor_registry
 
-    async def execute(self, run: Run, worker_id: str):
+    async def execute(self, run: Run, workflow: Workflow, worker_id: str):
         start_execution_time = time.monotonic()
         runs_started.inc()
         active_runs.labels(worker_id).inc()
@@ -33,10 +26,10 @@ class Runtime:
             }
             run.status = RunStatus.RUNNING
             RunRepository.update_status(run.id, run.status)
-            planner = Planner()
-            plan = planner.plan(run.goal.lower())
+            workflow_tasks = workflow.tasks
+            
             completed_tasks = set()
-            remaining_tasks: list[Task] = self.get_remaining_tasks(plan, completed_tasks)
+            remaining_tasks: list[Task] = self.get_remaining_tasks(workflow_tasks, completed_tasks)
 
             execution_context = {}
 
@@ -64,7 +57,7 @@ class Runtime:
                         logger.exception("Task failed: %s", execution)
                         results["FAILED"].append({task.name: str(execution)})
                         continue
-                    completed_tasks.add(task)
+                    completed_tasks.add(task.name)
                     execution_context[task.name] = execution
                     results["COMPLETED"][task.name] = execution
 
@@ -73,44 +66,53 @@ class Runtime:
 
             if workflow_failed:
                 run.status = RunStatus.FAILED
+                runs_failed.inc()
             else:
                 run.status = RunStatus.COMPLETED
+                runs_completed.inc()
+
             RunRepository.update_status(run.id, run.status)
-            runs_completed.inc()
             end_execution_time = time.monotonic()
             execution_duration_time = end_execution_time - start_execution_time
             logger.info("execution took %s seconds", execution_duration_time)
             return results, workflow_failed
-        except Exception as e:
+        except Exception:
             logger.exception("failed to execute run=%s", run.id)
             runs_failed.inc()
+            run.status = RunStatus.FAILED
+            RunRepository.update_status(run.id, run.status)
+            raise
         finally:
             active_runs.labels(worker_id).dec()
             run_duration.observe(
                 time.monotonic() - start_execution_time
             )
 
-    def dependencies_resolved(self, task, completed_tasks, execution_context):
-        dependencies_resolved = True
+    def dependencies_resolved(self, task: Task, completed_tasks: set, execution_context: dict):
         context = dict()
         for dep in task.depends_on:
             if dep not in completed_tasks:
-                dependencies_resolved = False
-                break
-            context[dep.name] = execution_context[dep.name]
-        return dependencies_resolved, context
+                return False, {}
+            context[dep] = execution_context[dep]
+        return True, context
 
-    def get_remaining_tasks(self, tasksList, completed_tasks):
+    def get_remaining_tasks(self, tasksList: list[Task], completed_tasks: set[str]):
         remainingTasks = []
         for task in tasksList:
-            if task not in completed_tasks:
+            if task.name not in completed_tasks:
                 remainingTasks.append(task)
         return remainingTasks
 
     async def execute_task(self, task: Task, deps_context: dict):
         try:
-            executor = self.executorsRegistry[task.name]
-            key, value = await executor.execute(task.name, deps_context)
+            executor = self.executor_registry.get(task.executor)
+
+            key, value = await executor.execute(
+                task.name,
+                deps_context,
+            )
+
             return task, {key: value}
+
         except Exception as e:
             return task, e

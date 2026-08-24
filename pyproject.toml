@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.141.1",
+    "openai>=3.3.1",
     "prometheus-client>=0.26.0",
     "psycopg2>=2.9.12",
     "pydantic-settings>=2.15.0",

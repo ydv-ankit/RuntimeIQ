@@ -5,6 +5,9 @@ from app.constants import RedisEnums, LEASE_TIME
 from app.workers.recovery_worker import startRecoveryWorker
 from app.config.logging import logger
 from prometheus_client import start_http_server
+from app.executors.executor_registry import registry as executor_registry
+from app.workflows.initialize_run_workflow import InitializeRunWorkflow
+from app.planner import Planner
 import uuid
 import asyncio
 import time
@@ -70,10 +73,12 @@ async def execute_runtime(run_id):
             renew_lease(run_id, lease_lost)
         )
 
-        runtime = Runtime()
+        runtime = Runtime(executor_registry)
+        planner = Planner(llm="openai")
+        workflow = await InitializeRunWorkflow(planner, executor_registry).prepare(run)
 
         runtime_task = asyncio.create_task(
-            runtime.execute(run, WORKER_ID)
+            runtime.execute(run, workflow, WORKER_ID)
         )
 
         lease_lost_task = asyncio.create_task(

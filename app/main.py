@@ -7,7 +7,7 @@ from app.config.redis import get_redis_connection
 from app.constants import RedisEnums
 from app.repository.run_repository import RunRepository 
 
-seed_db_schema()
+# seed_db_schema()  # manually seed db tables
 
 app = FastAPI()
 

@@ -9,9 +9,10 @@ class RunStatus(Enum):
     FAILED = 4
 
 class Run:
-    def __init__(self, goal: str, status: RunStatus = RunStatus.PENDING, id: str = None , created_at: datetime = None):
+    def __init__(self, goal: str, workflow_id: uuid.UUID = None, status: RunStatus = RunStatus.PENDING, id: str = None , created_at: datetime = None):
         self.id = uuid.UUID(id) if id else uuid.uuid4()
         self.goal = goal
+        self.workflow_id = workflow_id
         self.status = status
         self.created_at = created_at if created_at is not None else datetime.now(timezone.utc)
 
@@ -19,6 +20,7 @@ class Run:
         print("\n==============RUN==============")
         print("id:", self.id)
         print("goal:", self.goal)
+        print("workflow_id:", self.workflow_id)
         print("status:", self.status)
         print("created_at:", self.created_at)
         print("===============================\n")
