@@ -8,6 +8,8 @@ from prometheus_client import start_http_server
 from app.executors.executor_registry import registry as executor_registry
 from app.workflows.initialize_run_workflow import InitializeRunWorkflow
 from app.planner import Planner
+from app.llm.openai_provider import OpenAIProvider
+from app.config.env import settings
 import uuid
 import asyncio
 import time
@@ -74,7 +76,12 @@ async def execute_runtime(run_id):
         )
 
         runtime = Runtime(executor_registry)
-        planner = Planner(llm="openai")
+        llm = OpenAIProvider(
+            api_key=settings.OPENAI_API_KEY,
+            model="gpt-5.6-luna",
+        )
+
+        planner = Planner(llm)
         workflow = await InitializeRunWorkflow(planner, executor_registry).prepare(run)
 
         runtime_task = asyncio.create_task(

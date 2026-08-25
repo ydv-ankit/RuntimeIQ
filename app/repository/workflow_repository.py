@@ -10,12 +10,22 @@ class WorkflowRepository:
     @staticmethod
     def create(workflow: Workflow) -> str:
         query = """
-                INSERT INTO runs (id, name, definition, created_at)
+                INSERT INTO workflows (id, name, definition, created_at)
                 VALUES (%s, %s, %s, %s)
                 """
 
         workflow_id = uuid.uuid4()
-        params = (workflow_id, workflow.name, json.dumps(workflow.tasks), datetime.now(timezone.utc))
+        params = (
+            str(workflow_id), 
+            workflow.name, 
+            json.dumps(
+                [
+                    task.to_dict()
+                    for task in workflow.tasks
+                ]
+            ), 
+            datetime.now(timezone.utc)
+        )
 
         connection = get_db_connection()
         cursor = connection.cursor()
@@ -39,12 +49,8 @@ class WorkflowRepository:
         if row is None:
             raise Exception("workflow not found")
         cursor.close()
-        tasks = [
-            Task(
-                name=task["name"],
-                executor=task["executor"],
-                depends_on=task.get("depends_on", [])
-            )
+        tasks=[
+            Task.from_dict(task)
             for task in json.loads(row[2])
         ]
         return Workflow(

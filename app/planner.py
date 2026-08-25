@@ -1,49 +1,52 @@
+from app.llm.provider import LLMProvider
+from app.workflows.workflow import Workflow
 from app.models.planner_struct import PlannedWorkflow, to_workflow
 
 class Planner:
 
-    def __init__(self, llm):
+    def __init__(self, llm: LLMProvider):
         self.llm = llm
 
-    async def plan(self, goal, executor_registry):
-        executor_descriptions = (
-            executor_registry.get_descriptions()
-        )
+    async def plan(
+        self,
+        goal: str,
+        executor_descriptions: dict,
+    ) -> Workflow:
 
-        prompt = self.build_prompt(
-            goal,
-            executor_descriptions,
-        )
+        prompt = f"""
+            You are the workflow planner for RuntimeIQ.
 
-        plan = await self.llm.generate_structured(
-            prompt,
-            PlannedWorkflow,
-        )
+            Convert the user's goal into a minimal executable DAG.
 
-        return to_workflow(plan)
+            Available executors:
 
-    def build_prompt(self, goal, descriptions):
-        return """
-        You are the workflow planner for RuntimeIQ.
+            {executor_descriptions}
 
-        Your job is to convert a user's goal into an executable DAG.
+            Rules:
 
-        Available executors:
+            1. Only use the provided executors.
+            2. Every task must have a unique name.
+            3. depends_on must reference existing task names.
+            4. Tasks without dependencies may execute concurrently.
+            5. A task should depend on another task only when it requires
+            that task's output.
+            6. Do not invent executors.
+            7. Do not execute anything.
+            8. Keep the workflow as small as possible.
 
-        {executors}
+            User goal:
 
-        Rules:
-
-        1. Only use executors from the provided list.
-        2. Every task must have a unique name.
-        3. depends_on must reference existing task names.
-        4. Tasks with no dependency may execute concurrently.
-        5. A task should depend on another task only when it needs its output.
-        6. Do not perform execution yourself.
-        7. Do not invent executors.
-        8. Keep the workflow as small as possible while satisfying the goal.
-
-        User goal:
-
-        {goal}
+            {goal}
         """
+
+        planned: PlannedWorkflow = await self.llm.generate_structured(
+            prompt=prompt,
+            response_model=PlannedWorkflow,
+        )
+
+        print("PLANNED WORKFLOW")
+        print(planned)
+        for p in planned.tasks:
+            print(p)
+
+        return to_workflow(planned)
